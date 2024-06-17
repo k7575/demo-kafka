@@ -3,12 +3,20 @@ use rdkafka::message::{Header, Headers, OwnedHeaders};
 use rdkafka::producer::{FutureProducer, FutureRecord};
 use rdkafka::util::Timeout;
 use rdkafka::{ClientConfig, Message};
+use std::sync::atomic::AtomicBool;
+use std::sync::atomic::Ordering::{Acquire, SeqCst};
+use std::time::Duration;
+
+static EXIT: AtomicBool = AtomicBool::new(false);
 
 #[tokio::main]
 async fn main() {
-    tokio::spawn(consumer());
-    tokio::spawn(producer());
+    let t1 = tokio::spawn(producer());
+    let t2 = tokio::spawn(consumer());
     tokio::signal::ctrl_c().await.unwrap();
+    EXIT.store(true, SeqCst);
+    t1.await.unwrap();
+    t2.await.unwrap();
 }
 
 async fn producer() {
@@ -19,6 +27,10 @@ async fn producer() {
         .expect("Failed to create client");
 
     loop {
+        if EXIT.load(Acquire) {
+            return;
+        }
+
         let message = &format!("Message: {}", chrono::Local::now().to_string());
         p.send(
             FutureRecord::<(), _>::to("test")
@@ -31,7 +43,7 @@ async fn producer() {
         )
         .await
         .unwrap();
-        tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+        tokio::time::sleep(Duration::from_secs(5)).await;
         println!("Producer write: {}", message);
     }
 }
@@ -49,15 +61,27 @@ async fn consumer() {
 
     c.subscribe(&["test"]).unwrap();
     loop {
-        let message = c.recv().await.unwrap();
-        dbg!(message.topic());
-        dbg!(message.partition());
-        dbg!(message.offset());
-        dbg!(message.timestamp());
-        dbg!(message.headers().unwrap().get(0));
-        let data = message.payload().unwrap().to_vec();
-        println!("Consumer read: {}", unsafe {
-            String::from_utf8_unchecked(data)
-        });
+        if EXIT.load(Acquire) {
+            return;
+        }
+        tokio::select! {
+            v = c.recv() => {
+                if let Ok(message) = v {
+                    dbg!(message.topic());
+                    dbg!(message.partition());
+                    dbg!(message.offset());
+                    dbg!(message.timestamp());
+                    if let Some(h) = message.headers() {
+                        dbg!(h.get(0));
+                    }
+                    if let Some(data) = message.payload() {
+                        println!("Consumer read: {}", unsafe {
+                            String::from_utf8_unchecked(data.to_vec())
+                        });
+                    }
+                }
+            }
+            _ = tokio::time::sleep(Duration::from_millis(200)) =>  {}
+        }
     }
 }
