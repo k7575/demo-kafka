@@ -1,0 +1,6 @@
+###
+./bin/kafka-topics.sh --bootstrap-server localhost:9092 --topic test --create --partitions 3 --replication-factor 1
+./bin/kafka-topics.sh --bootstrap-server localhost:9092 --list
+./bin/kafka-topics.sh --bootstrap-server localhost:9092 --describe test
+./bin/kafka-topics.sh --bootstrap-server localhost:9092 --alter --topic test --partitions 6
+./bin/kafka-consumer-groups.sh --bootstrap-server localhost:9092 --all-groups --describe
