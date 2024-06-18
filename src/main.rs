@@ -1,4 +1,4 @@
-use rdkafka::consumer::{Consumer, StreamConsumer};
+use rdkafka::consumer::{CommitMode, Consumer, StreamConsumer};
 use rdkafka::message::{Header, Headers, OwnedHeaders};
 use rdkafka::producer::{FutureProducer, FutureRecord};
 use rdkafka::util::Timeout;
@@ -43,7 +43,7 @@ async fn producer() {
         )
         .await
         .unwrap();
-        tokio::time::sleep(Duration::from_secs(5)).await;
+        tokio::time::sleep(Duration::from_secs(1)).await;
         println!("Producer write: {}", message);
     }
 }
@@ -62,6 +62,9 @@ async fn consumer() {
     c.subscribe(&["test"]).unwrap();
     loop {
         if EXIT.load(Acquire) {
+            if let Err(e) = c.commit_consumer_state(CommitMode::Sync) {
+                println!("{}", e);
+            }
             return;
         }
         tokio::select! {
